@@ -1,0 +1,847 @@
+<?php
+require_once DRUPAL_ROOT . '/includes/password.inc';
+require_once DRUPAL_ROOT . '/includes/locale.inc';
+module_load_include('inc', 'user', 'user.pages');
+define('INITIAL_NUMBER_OF_USER', 0);
+define('INITIAL_NUMBER_OF_TOKENS', 0);
+define('FIRST_YEAR_FACTOR', 104000000);
+define('SECOND_YEAR_FACTOR', 126000000);
+define('THIRD_YEAR_FACTOR', 153000000);
+define('FOURTH_YEAR_FACTOR', 185000000);
+define('FIXED_FACTOR', 22441);
+
+
+/**
+ * Implements hook_init().
+ */
+function mico_core_init() {
+    global $user, $base_url, $language;
+    //print_r($language); exit;
+
+    $total_reserved_token = db_query("SELECT sum(token_amount) from {token_reservation}")->fetchField();
+    //print_r($total_sold_token); exit;
+    drupal_add_js(
+        array(
+            'mico_core' => array(
+                'mico_core_total_number_of_token_to_be_sold' => variable_get('mico_core_total_number_of_token_to_be_sold'),
+                'mico_core_per_token_price' => variable_get('mico_core_per_token_price'),
+                'mico_core_investor_return' => variable_get('mico_core_investor_return'),
+                'fix_return_policy_2nd_year' => variable_get('fix_return_policy_2nd_year'),
+                'fix_return_policy_3rd_year' => variable_get('fix_return_policy_3rd_year'),
+                'fix_return_policy_4th_year' => variable_get('fix_return_policy_4th_year'),
+                'bronze_minimum_token' => variable_get('bronze_minimum_token'),
+                'bronze_investor_return' => variable_get('bronze_investor_return'),
+                'gold_minimum_token' => variable_get('gold_minimum_token'),
+                'gold_investor_return' => variable_get('gold_investor_return'),
+                'platinum_minimum_token' => variable_get('platinum_minimum_token'),
+                'platinum_investor_return' => variable_get('platinum_investor_return'),
+                'total_reserved_already' => $total_reserved_token,
+                'fixed_factor' => FIXED_FACTOR,
+                'first_year_factor' => FIRST_YEAR_FACTOR,
+                'second_year_factor' => SECOND_YEAR_FACTOR,
+                'third_year_factor' => THIRD_YEAR_FACTOR,
+                'fourth_year_factor' => FOURTH_YEAR_FACTOR,
+                'base_url' => $base_url,
+                'current_lang' => $language->language,
+            )
+        ),
+        array('type' => 'setting')
+    );
+
+
+
+    drupal_add_js('sites/all/themes/mico/vendors/bootstrap/js/bootstrap.min.js', array(
+        'group' => JS_LIBRARY,
+        'every_page' => TRUE,
+        'cache' => TRUE,
+        'scope' => 'footer',
+    ));
+
+    drupal_add_js('sites/all/themes/mico/js/scrollreveal.min.js', array(
+        'group' => JS_LIBRARY,
+        'every_page' => TRUE,
+        'cache' => TRUE,
+        'scope' => 'footer',
+    ));
+    drupal_add_js('sites/all/themes/mico/js/main.js', array(
+        'group' => JS_LIBRARY,
+        'every_page' => TRUE,
+        'cache' => TRUE,
+        'scope' => 'footer',
+    ));
+
+    if (isset($_SESSION["reservation_confirmation_message"]) && $_SESSION["reservation_confirmation_message_status"]){
+        //drupal_set_message($_SESSION["reservation_confirmation_message"], $_SESSION["reservation_confirmation_message_status"]);
+        $message = $_SESSION["reservation_confirmation_message"];
+        $status = $_SESSION["reservation_confirmation_message_status"];
+        drupal_add_js(sprintf('jQuery(document).ready(function () {
+                              jQuery("div#message-success").hide();
+                               jQuery("div#message-warning").hide();
+                              jQuery("div#message-%s span#message").html("%s");
+                              jQuery("div#message-%s").show();
+                              jQuery("#message-modal").modal("show");
+                              });', $status, $message, $status ),
+            array('type' => 'inline', 'scope' => 'footer', 'weight' => 5)
+        );
+
+        unset($_SESSION["reservation_confirmation_message"]);
+        unset($_SESSION["reservation_confirmation_message_status"]);
+
+    }
+
+}
+
+
+
+/**
+ * Implements hook_menu().
+ */
+function mico_core_menu() {
+    $items = array();
+
+    $items['admin/config/ico/settings'] = array(
+        'title' => 'ICO Settings',
+        'description' => 'Configuration for profit model for investor',
+        'page callback' => 'drupal_get_form',
+        'page arguments' => array('mico_core_admin_settings'),
+        'access arguments' => array('access administration pages'),
+        'type' => MENU_NORMAL_ITEM,
+    );
+    $items['admin/config/etherscan/settings'] = array(
+        'title' => 'Etherscan API Settings',
+        'description' => 'Configuration for Etherscan API settings',
+        'page callback' => 'drupal_get_form',
+        'page arguments' => array('mico_core_admin_etherscan_api_settings'),
+        'access arguments' => array('access administration pages'), //to do
+        'type' => MENU_NORMAL_ITEM,
+    );
+
+    $items['mico/profit-projection/%'] = array(
+        'page callback' => 'mico_calculate_profit',
+        'page arguments' => array(2),
+        'access callback' => false,
+        'type' => MENU_CALLBACK,
+    );
+
+    $items['mico/email-testing'] = array(
+        'page callback' => 'mico_email_testing',
+        'access callback' => false,
+        'type' => MENU_CALLBACK,
+    );
+
+    $items['mico/confirm-reservation/%'] = array(
+        'page callback' => 'mico_reservation_confirmation',
+        'page arguments' => array(2),
+        'access callback' => false,
+        'type' => MENU_CALLBACK,
+    );
+
+    $items['mico/cancel-reservation/%'] = array(
+        'page callback' => 'mico_reservation_confirmation',
+        'page arguments' => array(2),
+        'access callback' => false,
+        'type' => MENU_CALLBACK,
+    );
+
+    $items['mico/reservations'] = array(
+        'page callback' => 'mico_reservations',
+        'access arguments' => array('access reservation progress'),
+        'type' => MENU_CALLBACK,
+    );
+
+    $items['mico/reservations/export-csv'] = array(
+        'page callback' => 'mico_reservations_export_csv',
+        'access arguments' => array('access reservation progress'),
+        'type' => MENU_CALLBACK,
+    );
+
+    return $items;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function mico_core_permission() {
+    return array(
+        'access reservation progress' => array(
+            'title' => t('Access Reservation Progress'),
+        ),
+    );
+}
+
+function mico_reservations() {
+   // global $user;
+    //print_r($user); exit;
+   $results =  db_query("SELECT SUM(tr.token_amount) as total_token_amount, tr.*  FROM {token_reservation} AS tr WHERE tr.uid IS NOT NULL GROUP BY tr.user_email ORDER BY tr.confirmation_time DESC")->fetchAll();
+ // print_r($results); exit;
+   return theme('ico_token_reservations', array('reservations' => $results));
+}
+
+/**
+ * Exports a CSV.
+ *
+ */
+function mico_reservations_export_csv() {
+    drupal_add_http_header('Content-Type', 'text/csv; utf-8');
+    drupal_add_http_header('Content-Disposition', 'attachment; filename=' ."reservations.csv");
+    $results =  db_query("SELECT * FROM {token_reservation} WHERE uid IS NOT NULL ORDER BY confirmation_time DESC")->fetchAll();
+
+    $output = '';
+    $keys = array();
+    foreach ($results[0] as $key => $value) {
+        $keys[] = $key;// $value['data'];
+    }
+
+    if ($keys) {
+        $output .= implode(",", $keys) . "\n";
+    }
+    foreach ($results as $result) {
+        $row = array();
+        foreach($result as $res) {
+            $row[] = $res;
+        }
+        $output .= implode(",", $row) . "\n";
+    }
+    print $output;
+    exit;
+}
+
+function mico_reservation_confirmation($url_hash_code){
+
+    $is_updated  = false;
+    global $base_url;
+
+    $request_info = db_query("SELECT * FROM {token_reservation} WHERE url_hash_code = :code", array(':code' => $url_hash_code))->fetchObject();
+    if(!$request_info){
+        $_SESSION["reservation_confirmation_message"] = t('Invalid reservation request!');
+        $_SESSION["reservation_confirmation_message_status"] = 'error';
+        drupal_goto($base_url);
+    }
+
+
+    $user_info = db_query("SELECT * FROM {token_reservation} WHERE url_hash_code = :code AND uid IS NULL", array(':code' => $url_hash_code))->fetchObject();
+
+    if($user_info){
+    $drupal_user = user_load_by_mail($user_info->user_email);
+        if(!$drupal_user) {
+            $account = new stdClass;
+            $account->is_new = TRUE;
+            $account->name = $user_info->user_email;
+            $account->pass = user_hash_password($user_info->reservation_code);
+            $account->mail = $user_info->user_email;
+            $account->init = $user_info->user_email;
+            $account->status = FALSE;
+            $account->roles = array(DRUPAL_AUTHENTICATED_RID => TRUE);
+            $account->timezone = variable_get('date_default_timezone', '');
+            $drupal_user = user_save($account);
+        }
+
+        $data = array(
+            'uid'   => $drupal_user->uid,
+            'confirmation_time' => date("Y-m-d H:i:s")
+        );
+
+        $num_updated = db_update('token_reservation')
+            ->fields($data)
+            ->condition('id', $user_info->id)
+            ->execute();
+
+        /*
+        $afected_rows = db_delete('token_reservation')
+            ->condition('user_email', $user_info->user_email)
+            ->condition('uid', NULL, 'IS')
+            ->execute();
+            */
+        if($num_updated && $num_updated > 0) {
+            $_SESSION["reservation_confirmation_message"] = t("Thank you for confirming your reservation.") . " <br />" .
+                t("Purchasing Procedures will be from October 27, 2017 14:00 (JST) to November 10, 2017 23: 59 (JST)."). " <br />" .
+                t("※Please note that \"Bonus Token\" Service will be until 23:59 on October 29.")
+            ;
+            $_SESSION["reservation_confirmation_message_status"] = 'success';
+            drupal_goto($base_url);
+        }
+    }
+
+    $_SESSION["reservation_confirmation_message"] = t('You have already reserved token!');
+    $_SESSION["reservation_confirmation_message_status"] = 'warning';
+    drupal_goto($base_url);
+}
+
+function mico_reservation_cancalation($url_hash_code){
+
+    global $base_url;
+
+    $request_info = db_query("SELECT * FROM {token_reservation} WHERE url_hash_code = :code AND uid IS NULL", array(':code' => $url_hash_code))->fetchObject();
+    if(!$request_info){
+        $_SESSION["reservation_confirmation_message"] = t('Invalid reservation request!');
+        $_SESSION["reservation_confirmation_message_status"] = 'error';
+        drupal_goto($base_url);
+    }
+
+    $num_deleted = db_delete('token_reservation')
+        ->condition('url_hash_code', $url_hash_code)
+        ->condition('uid', NULL, 'IS')
+        ->execute();
+
+        if($num_deleted > 0) {
+            $_SESSION["reservation_confirmation_message"] = t("Your reservation has been canceled.");
+            $_SESSION["reservation_confirmation_message_status"] = 'success';
+            drupal_goto($base_url);
+        }
+
+}
+
+function lists_session($key, $value = NULL) {
+    global $user;
+
+    static $storage;
+
+    // If the user is anonymous, force a session start.
+    if(!$user->uid) {
+        drupal_session_start();
+    }
+
+  if ($value) {
+      $storage[$key] = $value;
+      $_SESSION['lists'][$key] = $value;   // I use 'lists' in case some other module uses 'type' in $_SESSION
+  }
+  else if (empty($storage[$key]) && isset($_SESSION['lists'][$key])) {
+      $storage[$key] = $_SESSION['lists'][$key];
+  }
+  return $storage[$key];
+}
+
+function mico_email_testing(){
+    $data = array(
+        'token_amount' => 10,
+        'reservation_code' => "1506914044DyPhw",
+        'user_name' => "Syed Quamruzzaman",
+        'user_email' => "sqzaman@gmail.com",
+        'url_hash_code' => "cLRowCKsAYEKCZe9QUGOdZtdO9VwnM6xhHNMzEwEwvs-D3ILCQRvTRgFLNmppleUIagw0MG-sNuU6LsQtl2b_CrBcIZ_qlU3s70M26Ce8lfBZUvHR9MB6Wud_QCjIa4eN--M1XZPHd0Vc-F3HEkac_Q_gBHPZaGM8RwXi6qmCxinV6Vr9M3tt2lyR4Ibu2o12UWEKer3XSlCzg0ZPHXw_IfxdHu2dLsUZZUakoTWjoTLd6BgY3nvI4oeJrNBYQ65U7YscoR8yd81507268339465",
+        'reservation_time' => date("Y-m-d H:i:s")
+    );
+
+
+    return theme('ico_token_reservation_confirmation_email', array('reservation_info' => $data));
+    echo date("Y-m-d H:i:s");exit;
+$milliseconds = round(microtime(true) * 1000);
+
+echo $milliseconds; exit;
+    $to = 'sqzaman@gmail.com';
+    //$params['account'] = user_load_by_mail($to);
+    $params = array();
+    $message = drupal_mail('mico_core', 'awesome_mail_one', $to, language_default(), $params, 'mailer@smscoin.jp', TRUE);
+
+    //print_r($message); exit;
+    if (!empty($message['result'])) {
+        drupal_set_message("Mail sent!");
+    }
+
+}
+function mico_calculate_profit($token) {
+    echo json_encode(array("html" => theme('ico_token_profit_projection', array('no_of_token' => $token))));
+    exit;
+}
+
+
+function mico_core_admin_settings() {
+    $form = array();
+
+    $form['mico_core_ico_smart_contract_address'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Smart Contract Address'),
+        '#default_value' => variable_get('mico_core_ico_smart_contract_address', ''),
+        '#size' => 50,
+        '#maxlength' => 42,
+        '#description' => t("ICO Smart Contract Address"),
+        '#required' => TRUE,
+    );
+    $form['mico_core_ico_smart_contract_address_explore_url'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Smart Contract Address Explore Url'),
+        '#default_value' => variable_get('mico_core_ico_smart_contract_address_explore_url', ''),
+        '#size' => 255,
+        '#maxlength' => 255,
+        '#description' => t("ICO Smart Contract Address Explore Url"),
+        '#required' => TRUE,
+    );
+    $form['mico_core_expose_ico_smart_contract_address'] = array(
+        '#type' => 'checkbox',
+        '#title' => t('Expose smart contract address to user'),
+        '#default_value' => variable_get('mico_core_expose_ico_smart_contract_address', FALSE),
+        '#size' => 20,
+        '#maxlength' => 10,
+        '#description' => t("ICO Smart Contract Address"),
+        '#required' => FALSE,
+    );
+    $form['mico_core_ico_profit_distribution_address'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Profit Distribution Address'),
+        '#default_value' => variable_get('mico_core_ico_profit_distribution_address', ''),
+        '#size' => 50,
+        '#maxlength' => 42,
+        '#description' => t("ICO Profit Distribution Address"),
+        '#required' => TRUE,
+    );
+    $form['mico_core_ico_profit_distribution_address_explore_url'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Profit Distribution Address Explore Url'),
+        '#default_value' => variable_get('mico_core_ico_profit_distribution_address_explore_url', ''),
+        '#size' => 255,
+        '#maxlength' => 255,
+        '#description' => t("ICO Profit Distribution Address Explore Url"),
+        '#required' => TRUE,
+    );    
+    $form['mico_core_expose_ico_profit_distribution_address'] = array(
+        '#type' => 'checkbox',
+        '#title' => t('Expose profit distribution to user'),
+        '#default_value' => variable_get('mico_core_expose_ico_profit_distribution_address', FALSE),
+        '#size' => 20,
+        '#maxlength' => 10,
+        '#description' => t("ICO Profit Distribution Address"),
+        '#required' => FALSE,
+    );
+
+
+        return system_settings_form($form);
+    }
+
+function mico_core_admin_etherscan_api_settings() {
+    $form = array();
+
+    $form['mico_core_etherscan_api_base_endpoint'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Ethersacn API Base URL'),
+        '#default_value' => variable_get('mico_core_etherscan_api_base_endpoint', ''),
+        '#size' => 50,
+        '#maxlength' => 42,
+        '#description' => t("Ethersacn API Base URL"),
+        '#required' => TRUE,
+    );
+
+    $form['mico_core_etherscan_api_key'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Ethersacn API Key'),
+        '#default_value' => variable_get('mico_core_etherscan_api_key', ''),
+        '#size' => 50,
+        '#maxlength' => 42,
+        '#description' => t("Ethersacn API Key"),
+        '#required' => TRUE,
+    );
+
+
+    return system_settings_form($form);
+}
+
+    function form_token_purchase_request_form($form, &$form_state) {
+        $form['firstname'] = array(
+            '#title' => t('First name'),
+            '#type' => 'textfield',
+            '#required' => TRUE,
+        );
+        $form['lastname'] = array(
+            '#title' => t('Last name'),
+            '#type' => 'textfield',
+            '#required' => TRUE,
+        );
+
+        $form['email'] = array(
+            '#title' => t('Email'),
+            '#type' => 'textfield',
+            '#required' => TRUE,
+        );
+
+        $form['number_of_token_requested'] = array(
+            '#title' => t('Number of token (1 Token = 0.8 ETH)'),
+            '#type' => 'textfield',
+            '#required' => TRUE,
+        );
+
+
+
+        $options = country_get_list();
+         $form['country'] = array(
+             '#type' => 'select',
+             '#title' => t('Country'),
+             '#default_value' => 'JP',
+             '#options' => $options,
+             '#required' => TRUE,
+         );
+
+        $form['phone_number'] = array(
+            '#title' => t('Mobile phone number'),
+            '#type' => 'textfield',
+            '#required' => TRUE,
+        );
+
+
+        $form['submit'] = array(
+            '#value' => t('Make reservation'),
+            '#type' => 'submit',
+        );
+
+    return $form;
+}
+
+
+function form_token_purchase_request_form_submit($form, &$form_state) {
+    $return_value = array ();
+    $form_value = $form_state["values"];
+    global $language;
+    $reservation_code = db_query("SELECT reservation_code from {token_reservation} WHERE user_email = :user_email AND uid IS NOT NULL", array(":user_email" => $form_value["email"]))->fetchField();
+
+    if($reservation_code) {
+        $user_pass = $reservation_code;
+    } else {
+        $user_pass = time() . generateRandomString(5);
+    }
+
+    $data = array(
+        'token_amount' => $form_value['number_of_token_requested'],
+        'reservation_code' => $user_pass,
+        'user_name' => $form_value["firstname"] . " " . $form_value["lastname"],
+        'user_email' => $form_value["email"],
+        'country' => $form_value["country"],
+        'phone_number' => $form_value["phone_number"],
+        'user_lang' => $language->language,
+        'url_hash_code' => get_uique_hash_code(),
+        'reservation_time' => date("Y-m-d H:i:s")
+    );
+
+    $last_insert_id = db_insert('token_reservation')
+        ->fields($data)->execute();
+
+    //send email
+    if($last_insert_id) {
+        $to = $form_value["email"];
+        $params = $data;
+        $message = drupal_mail('mico_core', 'token_reservation_confirmation_email', $to, $language, $params, 'mailer@smscoin.jp', TRUE);
+
+    }
+
+    $return_value["code"] = 200;
+    $return_value["progress_status"] = theme("ico_token_presale_reservation_progress");
+    $return_value["message"] = t("You have successfully reserved <strong>@no_of_reserved_token</strong> tokens.", array("@no_of_reserved_token" =>$form_value['number_of_token_requested'])). "<br />".
+        t("A confirmation email has been sent to you. Please confirm your reservation!");
+    echo json_encode($return_value);
+    exit ;
+
+}
+
+function get_uique_hash_code(){
+  $milliseconds = round(microtime(true) * 1000);
+  $hash_code =  drupal_random_key(200);
+  return $hash_code.$milliseconds;
+}
+
+function generateRandomString($length = 10) {
+    $characters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    $charactersLength = strlen($characters);
+    $randomString = '';
+    for ($i = 0; $i < $length; $i++) {
+        $randomString .= $characters[rand(0, $charactersLength - 1)];
+    }
+    return $randomString;
+}
+
+
+/**
+ * Implements hook_mail().
+ */
+function mico_core_mail($key, &$message, $params)
+{
+    switch ($key) {
+        case 'token_reservation_confirmation_email':
+            $message['headers']['Content-Type'] = "text/html";
+            $message['subject'] = t("Welcome to speed mining service!") . " [ " . $params['reservation_code'] . " ]";
+            $body = theme('ico_token_reservation_confirmation_email', array('reservation_info' => $params));
+            $message['body'][] = $body;
+            break;
+        case 'awesome_mail_one':
+            $message['headers']['Content-Type'] = "html";
+            $message['headers']['Content-Type'] = "html";
+            $message['subject'] = "Awesome message test";
+            $body = theme('ico_token_reservation_confirmation_email', array('reservation_info' => array(
+                "user_name" => "Syed Quamruzzaman",
+                "token_amount" => "10",
+            )));
+            $message['body'][] = $body;
+            break;
+    }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function mico_core_form_user_login_alter(&$form, &$form_state) {
+    //print_r($form_state); exit;
+    $html_id = str_replace('_', '-', $form['#form_id']);
+    $form['#prefix'] = '<div id="ajax-' . $html_id . '-wrapper">';
+    $form['#suffix'] = '</div>';
+    $form['actions']['submit']['#ajax'] = array(
+        'callback' => '_mico_bootstrap_login_modal_ajax_callback',
+        'wrapper' => 'ajax-' . $html_id . '-wrapper',
+        'event' => 'click',
+    );
+    $form['name']['#attributes'] = array(
+        'placeholder' => t('email'),
+    );
+    $form['pass']['#attributes'] = array(
+        'placeholder' => t('password'),
+    );
+
+
+    $form['name']['#title_display'] = 'invisible';
+    $form['pass']['#title_display'] = 'invisible';
+    unset($form['name']['#description']);
+    unset($form['pass']['#description']);
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function mico_core_form_user_pass_alter(&$form, &$form_state) {
+    //print_r($form); exit;
+    $html_id = str_replace('_', '-', $form['#form_id']);
+    //print_r($form_state); exit;
+    $form['#prefix'] = '<div id="ajax-' . $html_id . '-wrapper">';
+    $form['#suffix'] = '</div>';
+    $form['actions']['submit']['#ajax'] = array(
+        'callback' => '_mico_bootstrap_login_modal_ajax_callback',
+        'wrapper' => 'ajax-' . $html_id . '-wrapper',
+        'event' => 'click',
+    );
+    $form['name']['#attributes'] = array(
+        'placeholder' => t('email'),
+    );
+
+
+    $form['name']['#title_display'] = 'invisible';
+    unset($form['name']['#description']);
+
+    array_unshift($form['#validate'] , 'user_pass_validate_alter');
+    //array_push($form['#validate'] , 'user_pass_validate_alter');
+    //$form['#validate'][0] = 'user_pass_validate_alter';
+    //$form['#validate'][1] = 'user_pass_validate';
+
+
+    //print_r($form['#validate']); exit;
+}
+
+function user_pass_validate_alter(&$form, &$form_state) {
+    //print_r($form); exit;
+    $mail = $form_state['values']['name'];
+    if (!valid_email_address($mail)) {
+    form_set_error('name', t('Please Enter a valid email address.'));
+    }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function mico_core_form_user_register_form_alter(&$form, &$form_state) {
+    global $language;
+    //print_r($form); exit;
+    $html_id = str_replace('_', '-', $form['#form_id']);
+    $form['#prefix'] = '<div id="ajax-' . $html_id . '-wrapper">';
+    $form['#suffix'] = '</div>';
+    $form['actions']['submit']['#ajax'] = array(
+        'callback' => '_mico_bootstrap_login_modal_ajax_callback',
+        'wrapper' => 'ajax-' . $html_id . '-wrapper',
+        'event' => 'click',
+    );
+   // $form['#submit'][] = '_mico_core_user_register_submit';
+
+    //$("#ajax-user-register-form-wrapper #user-register-form").removeAttr("enctype");
+    //$("#ajax-user-register-form-wrapper #user-register-form--2").removeAttr("enctype");
+    drupal_add_js(' jQuery(document).ready(function ($) {
+           $("#ajax-user-register-form-wrapper form").removeAttr("enctype");
+    })',
+        array('type' => 'inline', 'scope' => 'footer', 'weight' => 5)
+    );
+
+}
+
+/**
+ * @param $form
+ * @param $form_state
+ */
+function _mico_core_user_register_submit(&$form, &$form_state){
+    $status = 100;
+    $user = $form['#user'];
+    $put_data = array(
+        'email' => $user->mail,
+        'uid' => $user->uid,
+        'membership_id' => get_membership_id(),
+        'status' => $status,
+        'registration_time' =>  date("Y-m-d H:i:s"),
+    );
+
+    db_insert('smscoin_membership')->fields($put_data)->execute();
+}
+
+/**
+ * Ajax callback function for the forms.
+ */
+function _mico_bootstrap_login_modal_ajax_callback($form, $form_state) {
+    if (form_get_errors()) {
+        unset($form['#attributes']['enctype']);
+        return $form;
+    }
+
+    ctools_include('ajax');
+    $commands = array();
+    $commands[] = ctools_ajax_command_reload();
+    $commands[] =  ctools_ajax_command_redirect($form_state['redirect']);
+    return array(
+        '#type' => 'ajax',
+        '#commands' => $commands,
+    );
+}
+
+
+/**
+ * Implements hook_form_alter().
+ */
+function mico_core_form_alter(&$form, &$form_state, $form_id) {
+    global $language;
+    //echo $form_id . "<br />";
+    switch ($form_id) {
+        case 'user_register_form':
+            unset( $form['account']['pass']['#description']);
+            // #process handler to modify the password element expanded by Field API.
+            $form['account']['pass']['#process'] = array('form_process_password_confirm', 'register_alter_password_confirm');
+            break;
+        case 'user_profile_form':
+            //print_r($form['account']);exit;
+            $form['account']['current_pass']['#description'] = t('Enter your current password to change the <em class="placeholder">Password</em>. <a href="@url" title="@title">Request new password</a>.',
+                array(
+                    '@url' => "/$language->language/user/password",
+                    '@title' => t('Request new password via e-mail.')
+                )
+                );
+            $form['account']['pass']['#process'] = array('form_process_password_confirm', 'profile_edit_alter_password_confirm');
+            break;
+    }
+
+}
+
+
+/**
+ * Alter password and confirm password fields to remove title and insert placeholder.
+ */
+function profile_edit_alter_password_confirm($element) {
+
+    $element['pass1']['#title'] = t("New password");
+    //$element['pass1']['#attributes']['placeholder'] = t("password");
+    $element['pass2']['#title'] = t("confirm password");
+    //$element['pass2']['#attributes']['placeholder'] = t("confirm password");
+    return $element;
+}
+
+/**
+ * Alter password and confirm password fields to remove title and insert placeholder.
+ */
+function register_alter_password_confirm($element) {
+
+    $element['pass1']['#title_display'] = "invisible";
+    $element['pass1']['#attributes']['placeholder'] = t("password");
+    $element['pass2']['#title_display'] = "invisible";
+    $element['pass2']['#attributes']['placeholder'] = t("confirm password");
+    return $element;
+}
+
+/**
+ * Implement hook_form_profile2_form_alter
+ */
+function mico_core_form_profile2_form_alter(&$form, &$form_state) {
+    global $user;
+    $form['account']['mail']['#title_display'] = 'invisible';
+    $form['account']['pass']['#title_display'] = 'invisible';
+
+    $form['account']['current_pass']['#title_display'] = 'invisible';
+
+    $form['account']['mail']['#attributes'] = array(
+        'placeholder' => t('email'),
+    );
+    $form['account']['pass']['#attributes'] = array(
+        'placeholder' => t('password'),
+    );
+
+    unset($form['account']['mail']['#description']);
+    //unset($form['pass']['#description']);
+
+    //unset($form['profile_main']['#entity']->label);
+    $form['profile_main']['field_first_name'][LANGUAGE_NONE][0]['value']['#attributes'] = array(
+        'placeholder' => t('first name'),
+    );
+    $form['profile_main']['field_first_name'][LANGUAGE_NONE][0]['value']['#title_display'] = 'invisible';
+    unset($form['profile_main']['field_first_name']['und'][LANGUAGE_NONE]['value']['#description']);
+
+    $form['profile_main']['field_last_name'][LANGUAGE_NONE][0]['value']['#attributes'] = array(
+        'placeholder' => t('last name'),
+    );
+    $form['profile_main']['field_last_name'][LANGUAGE_NONE][0]['value']['#title_display'] = 'invisible';
+    unset($form['profile_main']['field_last_name']['und'][LANGUAGE_NONE]['value']['#description']);
+
+
+    $form['profile_main']['field_user_wallet'][LANGUAGE_NONE][0]['value']['#title_display'] = 'invisible';
+    unset($form['profile_main']['field_user_wallet']['und'][LANGUAGE_NONE]['value']['#description']);
+    if($user->uid < 1) {
+        unset($form['profile_main']['field_user_wallet']);
+    }
+
+    $form['#submit'][] = 'mico_core_custom_profile_submit_function';
+}
+
+function mico_core_custom_profile_submit_function($form, &$form_state) {
+   // print_r($form);exit;
+    if (isset($_GET['destination'])) {
+        unset($_GET['destination']);
+    }
+    $form_state['redirect'] = array("user/".$form['#user']->uid, array());
+}
+/**
+ * Implements hook_menu_alter().
+ */
+function mico_core_menu_alter(&$items) {
+    $items['user/%user']['title callback'] = 'mico_core_user_page_title';
+}
+function mico_core_user_page_title(){
+    if (arg(0) == 'user') {
+        // Load uid from url
+        $user = user_load(arg(1));
+        //print_r($profile); exit;
+        // Get the full user name somehow; here, I'm calling a function of my own.
+        $output = get_user_full_name($user);
+    }
+    // Fallback to username if no fields are present
+    if (empty($output)) {
+        $output = $user->name;
+    }
+    return $output;
+}
+/**
+ * Implements hook_form_FORM_ID_alter() for the user edit form.
+ */
+function mico_core_form_user_profile_form_alter(&$form, &$form_state) {
+    if (($type = profile2_get_types('main'))) {
+        if (empty($form_state['profiles'])) {
+            $profile = profile2_load_by_user($form['#user'], 'main');
+            if (empty($profile)) {
+                $profile = profile_create(array('type' => 'main', 'uid' => $form['#user']->uid));
+            }
+            $form_state['profiles'][$profile->type] = $profile;
+        }
+        profile2_attach_form($form, $form_state);
+    }
+}
+
+/**
+ * @param $user
+ * @return string
+ */
+function get_user_full_name($user) {
+    $profile = profile2_load_by_user($user, 'main');
+    return $profile->field_first_name[LANGUAGE_NONE][0]['value']. " ". $profile->field_last_name[LANGUAGE_NONE][0]['value'];
+}

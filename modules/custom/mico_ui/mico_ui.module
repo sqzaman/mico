@@ -1,0 +1,349 @@
+<?php
+
+
+/**
+ * Implementation of hook_theme().
+ */
+function mico_ui_theme() {
+    return array(
+        'ico_header' => array(
+            'template' => 'ico-header',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_main_menu' => array(
+            'template' => 'ico-main-menu',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_countdown_banner' => array(
+            'template' => 'ico-countdown-banner',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_feature_banner' => array(
+            'template' => 'ico-feature-banner',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_main_feature' => array(
+            'template' => 'ico-main-feature',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_progress_status' => array(
+            'template' => 'ico-progress-status',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_footer' => array(
+            'template' => 'ico-footer',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_roadmap' => array(
+            'template' => 'ico-roadmap',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_team' => array(
+            'template' => 'ico-team',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_more_information' => array(
+            'template' => 'ico-more-info',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_token_presale_reservation' => array(
+            'template' => 'ico-token-presale-reservation',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_token_presale_reservation_progress' => array(
+            'template' => 'ico-token-presale-reservation-progress',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_token_profit_projection' => array(
+            'variables' => array('no_of_token' => NULL),
+            'template' => 'ico-token-profit-projection',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_token_reservation_confirmation_email' => array(
+            'variables' => array('reservation_info' => null),
+            'template' => 'ico-token-reservation-confirmation-email',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_milestones' => array(
+            'template' => 'ico-milestones',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_lifecycle' => array(
+            'template' => 'ico-lifecycle',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_withdraw' => array(
+            'template' => 'ico-withdraw',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_schedule' => array(
+            'template' => 'ico-schedule',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_risks' => array(
+            'template' => 'ico-risks',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_privilege' => array(
+            'template' => 'ico-privilege',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_tos' => array(
+            'template' => 'ico-tos',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_token_reservations' => array(
+            'variables' => array('reservations' => null),
+            'template' => 'ico-token-reservations',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_reservations_menu' => array(
+            'template' => 'ico-reservations-menu',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_reserve_more_token' => array(
+            'variables' => array('total_reserved_token' => null),
+            'template' => 'ico-reserve-more-token',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_inner_page_menu' => array(
+            'template' => 'ico-inner-menu',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+        'ico_whitepapers' => array(
+            'template' => 'ico-whitepapers',
+            'path' => drupal_get_path('module', 'mico_ui') . '/templates'
+        ),
+    );
+}
+
+/**
+ * Implementation of hook_block_info().
+ */
+function mico_ui_block_info() {
+    $blocks['ico-header'] = array(
+        'info' => t('ICO Header'),
+    );
+    $blocks['ico-main-menu'] = array(
+        'info' => t('ICO Main Menu'),
+    );
+
+    $blocks['ico-inner-menu'] = array(
+        'info' => t('ICO Inner Menu'),
+    );
+
+    $blocks['ico-countdown-banner'] = array(
+        'info' => t('ICO Countdown Banner'),
+    );
+
+    $blocks['ico-feature-banner'] = array(
+        'info' => t('ICO Feature Banner'),
+    );
+
+    $blocks['ico-main-feature'] = array(
+        'info' => t('ICO Main Feature'),
+    );
+
+    $blocks['ico-progress-status'] = array(
+        'info' => t('ICO Progress Status'),
+        'cache' => DRUPAL_CACHE_GLOBAL,
+    );
+
+    $blocks['ico-roadmap'] = array(
+        'info' => t('ICO Roadmap'),
+    );
+
+    $blocks['ico-footer'] = array(
+        'info' => t('ICO Footer'),
+    );
+
+    $blocks['ico-team'] = array(
+        'info' => t('ICO Team'),
+    );
+
+    $blocks['ico-more-information'] = array(
+        'info' => t('ICO More Information'),
+    );
+
+    $blocks['ico-token-presale-reservation'] = array(
+        'info' => t('ICO Token Presale Reservation'),
+    );
+    $blocks['ico-milestones'] = array(
+        'info' => t('ICO Milestones'),
+    );
+
+    $blocks['ico-lifecycle'] = array(
+        'info' => t('ICO Lifecycle'),
+    );
+
+    $blocks['ico-withdraw'] = array(
+        'info' => t('ICO Withdraw'),
+    );
+
+    $blocks['ico-schedule'] = array(
+        'info' => t('ICO Schedule'),
+    );
+
+    $blocks['ico-risks'] = array(
+        'info' => t('ICO Risks'),
+    );
+
+    $blocks['ico-privilege'] = array(
+        'info' => t('ICO Privilege'),
+    );
+    $blocks['ico-tos'] = array(
+        'info' => t('ICO Terms of service'),
+    );
+    $blocks['ico-reservations-menu'] = array(
+        'info' => t('ICO Reservations'),
+    );
+
+    $blocks['ico-test-block'] = array(
+        'info' => t('ICO Test block'),
+    );
+
+    $blocks['ico-whitepapers'] = array(
+        'info' => t('ICO Whitepapers'),
+    );
+
+    return $blocks;
+}
+
+/**
+ * Implementation of hook_block_view().
+ */
+function mico_ui_block_view($delta='') {
+    $block = array();
+    switch ($delta) {
+        case 'ico-header':
+            $block['content'] = theme("ico_header");
+            break;
+        case 'ico-main-menu':
+            $block['content'] = mico_main_menu();
+            break;
+        case 'ico-countdown-banner':
+            $block['content'] = mico_countdown_banner();
+            break;
+        case 'ico-feature-banner':
+            $block['content'] = mico_feature_banner();
+            break;
+        case 'ico-main-feature':
+            $block['content'] = mico_main_feature();
+            break;
+        case 'ico-progress-status':
+            $block['content'] = mico_progress_status();
+            break;
+        case 'ico-footer':
+            //$block['subject'] = t('THE TEAM');
+            $block['content'] = mico_footer();
+            break;
+        case 'ico-roadmap':
+            //$block['subject'] = t('THE TEAM');
+            $block['content'] = mico_roadmap();
+            break;
+        case 'ico-team':
+            //$block['subject'] = t('THE TEAM');
+            $block['content'] = mico_team();
+            break;
+        case 'ico-more-information':
+            //$block['subject'] = t('THE TEAM');
+            $block['content'] = mico_more_information();
+            break;
+        case 'ico-token-presale-reservation':
+            //$block['subject'] = t('THE TEAM');
+            $block['content'] = mico_token_presale_reservation();
+            break;
+        case 'ico-milestones':
+            //$block['subject'] = t('THE TEAM');
+            $block['content'] = theme("ico_milestones");
+            break;
+        case 'ico-lifecycle':
+            //$block['subject'] = t('THE TEAM');
+            $block['content'] = theme("ico_lifecycle");
+            break;
+        case 'ico-withdraw':
+            //$block['subject'] = t('THE TEAM');
+            $block['content'] = theme("ico_withdraw");
+            break;
+        case 'ico-schedule':
+            $block['content'] = theme("ico_schedule");
+            break;
+        case 'ico-risks':
+            $block['content'] = theme("ico_risks");
+            break;
+        case 'ico-privilege':
+            $block['content'] = theme("ico_privilege");
+            break;
+        case 'ico-tos':
+            $block['content'] = theme("ico_tos");
+            break;
+        case 'ico-reservations-menu':
+            $block['content'] = theme("ico_reservations_menu");
+            break;
+        case 'ico-inner-menu':
+            $block['content'] = theme("ico_inner_page_menu");
+            break;
+        case 'ico-whitepapers':
+            $block['content'] = theme("ico_whitepapers");
+            break;
+    }
+    return $block;
+}
+
+
+function mico_feature_banner(){
+    return theme("ico_feature_banner");
+}
+
+function mico_main_feature(){
+    return theme("ico_main_feature");
+}
+
+function mico_countdown_banner(){
+    return theme("ico_countdown_banner");
+}
+
+function mico_progress_status(){
+    return theme("ico_progress_status");
+}
+
+function mico_footer(){
+    return theme("ico_footer");
+}
+
+function mico_header(){
+    /*
+        if (!user_is_logged_in()) {
+        $block = array(
+            'subject' => NULL,
+            'content' => array(
+                '#markup' => theme('bootstrap_login_modal_output'),
+                '#attached' => array(
+                    'js' => array(
+                        drupal_get_path("module", "bootstrap_login_modal") . "/js/bootstrap_login_modal.js",
+                    ),
+                ),
+            ),
+        );
+    }
+*/
+    return theme("ico_header");
+}
+
+function mico_main_menu(){
+    return theme("ico_main_menu");
+}
+
+function mico_roadmap(){
+    return theme("ico_roadmap");
+}
+function mico_team(){
+    return theme("ico_team");
+}
+function mico_more_information(){
+    return theme("ico_more_information");
+}
+
+function mico_token_presale_reservation() {
+    return theme("ico_token_presale_reservation");
+}

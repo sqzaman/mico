@@ -1,0 +1,9 @@
+name = mICO Core
+description = Resposible for handling ICO related settings and functionalities.
+
+core = 7.x
+
+package = mICO
+
+; NEW LINE
+configure = admin/config/ico/settings

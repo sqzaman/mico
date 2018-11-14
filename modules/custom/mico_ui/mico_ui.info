@@ -1,0 +1,7 @@
+name = mICO UI
+description = Resposible for handling ui related functionality.
+
+core = 7.x
+
+package = mICO
+

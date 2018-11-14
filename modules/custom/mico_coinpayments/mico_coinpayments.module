@@ -1,0 +1,570 @@
+<?php
+define('MEMBERSHIP_NEW', 0);
+define('MEMBERSHIP_PAYMENT_PENDING', 1);
+define('MEMBERSHIP_PAYMENT_COMPLETE', 2);
+define('MEMBERSHIP_PAYMENT_FAILED', 3);
+define('DB_ERROR', 4);
+
+/**
+ * Implements hook_permission().
+ */
+function mico_coinpayments_permission() {
+    return array(
+        'buy membership' => array(
+            'title' => t('Buy Membership'),
+        ),
+        'access payment settings' => array(
+            'title' => t('Access Payment Settings'),
+        )
+    );
+}
+
+/**
+ * Implements hook_menu().
+ */
+function mico_coinpayments_menu() {
+    $items = array();
+
+    $items['mico/coinpayment/payment/success'] = array(
+        'page callback' => '_mico_coin_payment_success',
+        'access callback' => TRUE,
+        'type' => MENU_CALLBACK,
+    );
+
+    $items['mico/coinpayment/payment/test'] = array(
+        'page callback' => 'add_membership',
+        'access callback' => FALSE,
+        'type' => MENU_CALLBACK,
+    );
+
+    $items['mico/membership/payment'] = array(
+        'page callback' => '_mico_membership_payment',
+        'access arguments' => array('buy membership'),
+        'type' => MENU_CALLBACK,
+    );
+
+
+    $items['admin/config/payment/settings'] = array(
+        'title' => 'CoinPayment Payment Settings',
+        'description' => 'Configuration for payment settings',
+        'page callback' => 'drupal_get_form',
+        'page arguments' => array('mico_coinpayments_settings'),
+        'access arguments' => array('access payment settings'), //to do
+        'type' => MENU_NORMAL_ITEM,
+    );
+
+    return $items;
+}
+
+/**
+ * Implementation of hook_theme().
+ */
+function mico_coinpayments_theme() {
+    return array(
+        'payment_info' => array(
+            'variables' => array('info' => NULL),
+            'template' => 'ico-payment-info',
+            'path' => drupal_get_path('module', 'mico_coinpayments') . '/templates'
+        ),
+
+    );
+}
+
+function _mico_membership_payment(){
+    global $user, $base_url, $language;
+    //admin email
+    $admin_email = "admin@smscoin.jp";
+    // Fill these in Payment configuration page
+    $payment_api_url = variable_get('mico_coinpayments_api_url', '');
+    $public_key = variable_get('mico_coinpayments_public_key', '');
+    $private_key = variable_get('mico_coinpayments_private_key', '');
+    $address = variable_get('mico_coinpayments_deposit_address', '');
+    $currency2 = variable_get('mico_coinpayments_accepted_coin_type', '');
+    $membership_fee = variable_get('mico_coinpayments_amount', '');
+    $transaction_fee =  variable_get('mico_coinpayments_transaction_fee', '');
+    $ipn_url = variable_get('mico_coinpayments_ipn_url', '');
+    $item_name = 'smscoin membership fee';
+    $item_number = 'smscoin membership v1.0';
+    $merchant = variable_get('mico_coinpayments_merchant_id', '');
+
+    //echo $private_key.'   '; echo $public_key; exit;
+    // Set the API command and required fields
+    $total_charge = get_total_charge($membership_fee, $transaction_fee);
+    $req = array(
+        'version' => 1,
+        'cmd' => 'create_transaction',
+        'key' => $public_key,
+        'format' => 'json',
+        'amount' => $total_charge,
+        'address'=> $address,
+        'currency1'=> $currency2,
+        'currency2'=> $currency2,
+        'buyer_name' => get_user_full_name($user),
+        'buyer_email' => $user->mail,
+        'item_name' => $item_name,
+        'item_number' => $item_number,
+        'ipn_url' => $ipn_url,
+        //'invoice' => '',
+        //'custom' => '',
+        'merchant' => $merchant,
+    );
+
+
+
+    // Generate the query string
+    $post_data = http_build_query($req, '', '&');
+
+    // Calculate the HMAC signature on the POST data
+    $hmac = hash_hmac('sha512', $post_data, $private_key);
+
+    $check_membership = check_membership($user);
+    //print_r($check_membership); exit;
+
+    if ($check_membership['flag'] == MEMBERSHIP_PAYMENT_PENDING ) {
+        //print_r($check_membership); exit;
+        $dec_result = json_decode($check_membership['data']->payment_json, true);
+        //print_r($dec_result); exit;
+        header('Content-Type: application/json');
+        echo json_encode(array(
+            'html' => theme('payment_info', array('info' => $dec_result)),
+            'message' => t("Please make payments, If you have already done payment, please check the status through the link in 'Payment Status URL'"),
+            'status' => 1,
+        ));
+        exit(0);
+
+    } else if ($check_membership['flag'] == MEMBERSHIP_PAYMENT_COMPLETE) {
+        header('Content-Type: application/json');
+        echo json_encode(array(
+            'html' => "",
+            'status' => 2,
+            ));
+        exit(0);
+
+    } else if ($check_membership['flag'] == MEMBERSHIP_NEW || $check_membership['flag'] == MEMBERSHIP_PAYMENT_FAILED) {
+        //print_r("here 1");exit;
+        // Create cURL handle and initialize (if needed)
+        static $ch = NULL;
+        if ($ch === NULL) {
+            $ch = curl_init($payment_api_url);
+            curl_setopt($ch, CURLOPT_FAILONERROR, TRUE);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
+        }
+        curl_setopt($ch, CURLOPT_HTTPHEADER, array('HMAC: '.$hmac));
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
+        // Execute the call and close cURL handle
+        $data = curl_exec($ch);
+        //print_r($data);exit;
+
+        // Parse and return data if successful.
+        if ($data !== FALSE) {
+            //decode data according to version of PHP
+            if (PHP_INT_SIZE < 8 && version_compare(PHP_VERSION, '5.4.0') >= 0) {
+                // We are on 32-bit PHP, so use the bigint as string option. If you are using any API calls with Satoshis it is highly NOT recommended to use 32-bit PHP
+                $dec = json_decode($data, TRUE, 512, JSON_BIGINT_AS_STRING);
+            } else {
+                $dec = json_decode($data, TRUE);
+            }
+
+            //Check the decode data and proceed
+            if ($dec !== NULL && count($dec)) {
+                //print_r($dec); exit;
+                //check if the payment api is success and proceed
+                if($dec['error'] == "ok") {
+                    if($check_membership['flag'] == MEMBERSHIP_PAYMENT_FAILED){
+                        $query = update_failed_user($dec['result'], $user);
+                    }
+                    if($check_membership['flag'] == MEMBERSHIP_NEW){
+                        $query = create_new_user($dec['result'], $user);
+                    }
+
+                    if($query){
+                        mail($admin_email, 'Membership payment created. DB update Success. TXID: '. $dec['result']['txn_id'], "membership payment is created. DB update success.". $dec['result']['txn_id']);
+                    } else {
+                        mail($admin_email, 'Membership payment created. DB update failed. TXID: '. $dec['result']['txn_id'], "payment is successful. DB update failed. For: ".$dec['result']['txn_id']);
+                    }
+                } else {
+                    header('Content-Type: application/json');
+                    echo  json_encode( array(
+                        'error' => 'Payment GW Error',
+                        'message' => t('Unexpected response from payment GW'),
+                        'status' => -1
+                      ));
+                    exit(0);
+                }
+
+            } else {
+                // If you are using PHP 5.5.0 or higher you can use json_last_error_msg() for a better error message
+                header('Content-Type: application/json');
+                echo  json_encode( array(
+                    'error' => 'Json Encode Error',
+                    'message' => t('Server could not decode json from payment GW'),
+                    'status' => -3
+                  ));
+                exit(0);
+            }
+        } else {
+            header('Content-Type: application/json');
+            echo  json_encode( array(
+                'error' => 'Payment GW Error',
+                'message' => t('Payment GW Failure, Please try again later'),
+                'status' => -1
+              ));
+            exit(0);
+        }
+
+        header('Content-Type: application/json');
+        echo json_encode(array(
+            'html' => theme('payment_info', array('info' => $dec['result'])),
+            'status' => 0,
+        ));
+        exit(0);
+
+    } else {
+        header('Content-Type: application/json');
+        echo  json_encode( array(
+            'error' => 'Server Error',
+            'message' => t('Server Error Occurred'),
+            'status' => -2
+          ));
+        exit(0);
+    }
+}
+
+
+function _mico_coin_payment_success(){
+    //debug purpose
+    //file_put_contents('post.txt', print_r($_POST, true));
+    //file_put_contents('server.txt', print_r($_SERVER, true));
+
+    // Fill these in with the information from your CoinPayments.net account.
+    //merchant id
+    $cp_merchant_id = variable_get('mico_coinpayments_merchant_id', '');
+    //ipnsecret key
+    $cp_ipn_secret = variable_get('mico_coinpayments_ipn_secret', '');
+    //These would normally be loaded from your database, the most common way is to pass the Order ID through the 'custom' POST field.
+    $order_currency = variable_get('mico_coinpayments_accepted_coin_type', '');
+    //fee of membership
+    $membership_fee = variable_get('mico_coinpayments_amount', '');
+
+    $transaction_fee =  variable_get('mico_coinpayments_transaction_fee', '');
+    //admin email
+    $admin_email = "admin@smscoin.jp";
+
+    if (!isset($_POST['ipn_mode']) || $_POST['ipn_mode'] != 'hmac') {
+        errorAndDie('IPN Mode is not HMAC');
+    }
+
+    if (!isset($_SERVER['HTTP_HMAC']) || empty($_SERVER['HTTP_HMAC'])) {
+        errorAndDie('No HMAC signature sent.');
+    }
+
+    $request = file_get_contents('php://input');
+    if ($request === FALSE || empty($request)) {
+        errorAndDie('Error reading POST data');
+    }
+
+    //debug purpose
+    //file_put_contents('request.txt', print_r($request, true));
+
+    if (!isset($_POST['merchant']) || $_POST['merchant'] != trim($cp_merchant_id)) {
+        errorAndDie('No or incorrect Merchant ID passed');
+    }
+
+    $hmac = hash_hmac("sha512", $request, trim($cp_ipn_secret));
+    if ($hmac != $_SERVER['HTTP_HMAC']) {
+        errorAndDie('HMAC signature does not match');
+    }
+
+    // HMAC Signature verified at this point, load some variables.
+
+    $txn_id = $_POST['txn_id'];
+    $item_name = $_POST['item_name'];
+    $item_number = $_POST['item_number'];
+    $amount1 = floatval($_POST['amount1']);
+    $amount2 = floatval($_POST['amount2']);
+    $currency1 = $_POST['currency1'];
+    $currency2 = $_POST['currency2'];
+    $status = intval($_POST['status']);
+    $status_text = $_POST['status_text'];
+    $email = $_POST['email'];
+    $buyer_name = $_POST['buyer_name'];
+    $received_amount = $_POST['received_amount'];
+    $received_confirms = $_POST['received_confirms'];
+
+    //depending on the API of your system, you may want to check and see if the transaction ID $txn_id has already been handled before at this point
+
+    // Check the original currency to make sure the buyer didn't change it.
+    if ($currency1 != $order_currency) {
+        errorAndDie('Original currency mismatch!'.'  TXID: '.$txn_id);
+    }
+
+    // total charge includes the transaction_fee as well
+    $total_charge = get_total_charge($membership_fee, $transaction_fee);
+    // Check amount against order total
+    if ($amount1 < $total_charge) {
+        errorAndDie('Amount is less than order total!'.'  TXID: '.$txn_id);
+    }
+
+    $ipn_data = array(
+        "post_data" => $_POST,
+        "server_data" => $_SERVER,
+    );
+    $put_data = array(
+        "ipn_payment_json" => json_encode($ipn_data),
+        "status" => $status,
+        "payment_transaction_id" => $txn_id,
+    );
+
+    if ($status >= 100 || $status == 2) {
+        // payment is complete or queued for nightly payout, success
+        $put_data['payment_time'] = date("Y-m-d H:i:s");
+        $query = updateMembershipStatus($put_data, $email);
+        if($query){
+            mail($admin_email, 'CoinPayments payment successful'.'  TXID: '.$txn_id, "payment is successful. DB update success.".'  TXID: '.$txn_id);
+        } else {
+            mail($admin_email, 'CoinPayments payment successful but Failure in Database Update'.'  TXID: '.$txn_id, "payment is successful. DB update failed.".'  TXID: '.$txn_id);
+        }
+
+    } else if ($status < 0) {
+        //payment error, this is usually final but payments will sometimes be reopened if there was no exchange rate conversion or with seller consent
+        $query = updateMembershipStatus($put_data, $email);
+        if($query) {
+            mail($admin_email, 'CoinPayments payment unsuccessful'.'  TXID: '.$txn_id, "payment is unsuccessful. DB update success.".'  TXID: '.$txn_id);
+        } else {
+            mail($admin_email, 'CoinPayments payment unsuccessful and DB update failed'.'  TXID: '.$txn_id, "payment is unsuccessful. DB update failed.".'  TXID: '.$txn_id);
+        }
+    } else {
+        //payment is pending, you can optionally add a note to the order page
+        $query = updateMembershipStatus($put_data, $email);
+        if($query) {
+          mail($admin_email, 'CoinPayments payment still pending'.'  TXID: '.$txn_id, "payment is still pending. DB update success".'  TXID: '.$txn_id);
+        } else {
+          mail($admin_email, 'CoinPayments payment still pending and DB update failed'.'  TXID: '.$txn_id, "payment is still pending. DB update failed".'  TXID: '.$txn_id);
+        }
+    }
+    die('IPN OK');
+}
+
+function get_total_charge($membership_fee, $transaction_fee){
+  //return $membership_fee + (($transaction_fee/100) * $membership_fee); // provides lesser amount to use due to transaction fee in total by coin payments
+  $total = $membership_fee + $transaction_fee;
+  return $total;
+}
+
+function updateMembershipStatus($put_data, $email){
+  return db_update('smscoin_membership')
+        ->fields($put_data)
+        ->condition('email',$email)
+        ->execute();
+}
+
+function errorAndDie($error_msg) {
+    $cp_debug_email = 'admin@smscoin.jp';
+    if (!empty($cp_debug_email)) {
+        $report = 'Error: '.$error_msg."\n\n";
+        $report .= "POST Data\n\n";
+        foreach ($_POST as $k => $v) {
+            $report .= "|$k| = |$v|\n";
+        }
+        mail($cp_debug_email, 'CoinPayments IPN Error', $report);
+    }
+    die('IPN Error: '.$error_msg);
+}
+
+function mico_coinpayments_settings(){
+    $form = array();
+
+    $form['mico_coinpayments_merchant_id'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Merchant Id'),
+        '#default_value' => variable_get('mico_coinpayments_merchant_id', ''),
+        '#size' => 64,
+        '#maxlength' => 64,
+        '#description' => t("Merchant Id"),
+        '#required' => TRUE,
+    );
+    $form['mico_coinpayments_api_url'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Api URL'),
+        '#default_value' => variable_get('mico_coinpayments_api_url', ''),
+        '#size' => 64,
+        '#maxlength' => 64,
+        '#description' => t("Api URL"),
+        '#required' => TRUE,
+    );
+    $form['mico_coinpayments_private_key'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Private Key'),
+        '#default_value' => variable_get('mico_coinpayments_private_key', ''),
+        '#size' => 64,
+        '#maxlength' => 64,
+        '#description' => t("Private Key"),
+        '#required' => TRUE,
+    );
+    $form['mico_coinpayments_public_key'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Public Key'),
+        '#default_value' => variable_get('mico_coinpayments_public_key', ''),
+        '#size' => 64,
+        '#maxlength' => 64,
+        '#description' => t("Public Key"),
+        '#required' => TRUE,
+    );
+    $form['mico_coinpayments_deposit_address'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Deposit Address'),
+        '#default_value' => variable_get('mico_coinpayments_deposit_address', ''),
+        '#size' => 64,
+        '#maxlength' => 64,
+        '#description' => t("Deposit Address"),
+        '#required' => TRUE,
+    );
+    $form['mico_coinpayments_accepted_coin_type'] = array(
+        '#type' => 'select',
+        '#title' => t('Accepted Coin Type'),
+        '#options' => array(
+            'ETH' => t('ETH'),
+            'LTCT' => t('LTCT'),
+            ),
+        '#default_value' => variable_get('mico_coinpayments_accepted_coin_type', ''),
+        '#description' => t("Accepted Coin Type"),
+        '#required' => TRUE,
+    );
+    $form['mico_coinpayments_amount'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Payment Amount'),
+        '#default_value' => variable_get('mico_coinpayments_amount', ''),
+        '#attributes' => array(
+            ' type' => 'number',
+            ' step' => 0.001,
+        ),
+        '#size' => 20,
+        '#maxlength' => 10,
+        '#description' => t("Payment Amount"),
+        '#required' => TRUE,
+    );
+    $form['mico_coinpayments_transaction_fee'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Transaction Fee'),
+        '#default_value' => variable_get('mico_coinpayments_transaction_fee', ''),
+        '#attributes' => array(
+            ' type' => 'number',
+            ' step' => 0.001,
+        ),
+        '#size' => 20,
+        '#maxlength' => 10,
+        '#description' => t("Transaction Fee"),
+        '#required' => TRUE,
+    );
+    $form['mico_coinpayments_ipn_url'] = array(
+        '#type' => 'textfield',
+        '#title' => t('IPN Url'),
+        '#default_value' => variable_get('mico_coinpayments_ipn_url', ''),
+        '#size' => 64,
+        '#maxlength' => 64,
+        '#description' => t("IPN Url"),
+    );
+    $form['mico_coinpayments_ipn_secret'] = array(
+        '#type' => 'textfield',
+        '#title' => t('IPN Secret'),
+        '#default_value' => variable_get('mico_coinpayments_ipn_secret', ''),
+        '#size' => 64,
+        '#maxlength' => 64,
+        '#description' => t("IPN Secret"),
+    );
+    return system_settings_form($form);
+}
+
+function check_membership($user) {
+
+    //print_r($user); exit;
+    try {
+        $results = db_query("SELECT * FROM {smscoin_membership} where email = :mail", array(":mail"=>$user->mail))->fetchObject();
+        $status = $results->status;
+        //print_r($status);exit;
+        if ($results) {
+            if ($status >= 0 && $status <= 99 ){
+                return array(
+                    "flag" => MEMBERSHIP_PAYMENT_PENDING,
+                    "data" => $results
+                );
+            }
+
+            if ($status >= 100){
+                return array(
+                    "flag" => MEMBERSHIP_PAYMENT_COMPLETE,
+                    "data" => $results
+                );
+            }
+
+            if ($status < 0){
+              return array(
+                  "flag" => MEMBERSHIP_PAYMENT_FAILED,
+                  "data" => $results
+                  );
+            }
+        }else {
+            //create_new_user($data, $user);
+           return  array(
+                "flag" => MEMBERSHIP_NEW,
+                "data" => null
+            );
+        }
+    } catch (Exception $e) {
+        return  array(
+             "flag" => DB_ERROR,
+             "data" => $e
+         );
+    }
+}
+
+function create_new_user($data, $user){
+    $status = 0;
+    $put_data = array(
+        'email' => $user->mail,
+        'uid' => $user->uid,
+        'membership_id' => get_membership_id(),
+        'status' => $status,
+        'payment_transaction_id' => $data['txn_id'],
+        'payment_json' => json_encode($data),
+        'registration_time' =>  date("Y-m-d H:i:s"),
+        'sms_coin_on_exchange' => 1
+    );
+
+    return db_insert('smscoin_membership')->fields($put_data)->execute();
+    //print_r($put_data); echo "   inserted"; exit;
+    //return $member_insert;
+}
+
+function update_failed_user($data, $user){
+    $status = 0;
+    $put_data = array(
+        'status' => $status,
+        'payment_transaction_id' => $data['txn_id'],
+        'payment_json' => json_encode($data),
+        'registration_time' =>  date("Y-m-d H:i:s"),
+    );
+    return db_update('smscoin_membership')
+          ->fields($put_data)
+          ->condition('email',$user->mail)
+          ->execute();
+}
+
+/**
+ * @return string
+ */
+function get_membership_id(){
+    $results =  db_query("SELECT membership_id FROM {smscoin_membership}")->fetchAll(PDO::FETCH_COLUMN);
+    $digits = 4;
+    $rand_number = str_pad(rand(0, pow(10, $digits)-1), $digits, '0', STR_PAD_LEFT);
+    $now = DateTime::createFromFormat('U.u', microtime(true));
+    $unique_id = strrev($now->format("Y")). "-".strrev($now->format("md")) . "-" . substr($now->format("u"), 0, -2)."-" .$rand_number;
+
+    while(in_array($unique_id, $results)){
+        $rand_number = str_pad(rand(0, pow(10, $digits)-1), $digits, '0', STR_PAD_LEFT);
+        $now = DateTime::createFromFormat('U.u', microtime(true));
+        $unique_id = strrev($now->format("Y")). "-".strrev($now->format("md")) . "-" . substr($now->format("u"), 0, -2)."-" .$rand_number;
+    }
+    return $unique_id;
+}

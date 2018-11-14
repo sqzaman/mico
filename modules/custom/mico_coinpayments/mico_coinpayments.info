@@ -1,0 +1,6 @@
+name = mICO Coinpayments
+description = Resposible for handling ICO payment related settings and functionalities.
+
+core = 7.x
+
+package = mICO

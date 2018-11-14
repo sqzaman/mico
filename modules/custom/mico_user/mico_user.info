@@ -1,0 +1,7 @@
+name = mICO User
+description = Resposible for handling ICO user related settings and functionalities.
+
+core = 7.x
+
+package = mICO
+files[] = mico_user.drush.inc
